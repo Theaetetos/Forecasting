@@ -1,0 +1,2483 @@
+---
+title: "Forecasting: Principles and Practice"
+header-includes:
+  - \usepackage{amsmath}
+output: html_notebook
+---
+
+```{r}
+load_pkgs <- function(pkgs){
+  for(pkg in pkgs){
+    if(!(require(pkg, character.only=TRUE))){
+      install.packages(pkg)
+      library(pkg, character.only=TRUE)
+    }
+  }
+}
+
+load_pkgs(
+  c('data.table', 'dplyr', 'fpp2', 'GGally', 'gridExtra', 'rdatamarket', 'scales', 'seasonal', 'stringr',
+    'tsoutliers', 'urca', 'vars')
+)
+```
+
+# Chapter 1: Getting Started
+## Forecasting, planning, and goals
+Three concepts which should be kept separate:  
+  1) Forecasting - predicting future as accurately as possible given all information available
+  2) Goals - what one would like to happen in the future; should be linked to forecasts for sanity checking and planning
+  3) Planning - determining actions required to make forecasts match goals
+## Determining what to forecast
+It is always worth spending the time up front to determine business needs, including horizon, frequency, period, etc.
+## The basic steps of forecasting
+  1) Problem definition
+  2) Gathering information
+    -both data and expert judgment
+  3) Preliminary analysis
+    -always start by graphing data
+      -look for patterns - trend, seasonality, business cycles, exogenous variables...
+  4) Choosing and fitting models
+  5) Using and evaluating model
+# Chapter 2: Time Series Graphics
+## ts Objects
+A time series can be thought of as a vector of observations together with information about when they were recorded. The ts() function can be used to create one.
+```{r}
+ts(c(123, 39, 78, 52, 110), start = 2012)
+```
+
+ts() assumes yearly observations. Change this with the frequency argument. 'Frequency' is defined as the number of observations before the seasonal pattern repeats.
+```{r}
+ts(c(123, 39, 78, 52, 110), start = 2012, frequency = 12) # 12 for monthly
+```
+
+```{r}
+ts(c(123, 39, 78, 52, 110), start = 2012, frequency = 4) # 4 for quarterly
+```
+
+Weekly and daily aren't automagic, however
+Daily seasonality is classically set to be 365.25 (for leap years) and weekly 52.18 (=365.25/52), but ts objects must have integer seasonality and cannot handle multiple seasonalities (cf. Ch. 11).
+```{r}
+ts(c(123, 39, 78, 52, 110), start = 2012, frequency = 52)
+```
+
+## Time plots
+The plot to start with is simply the observations through time. The auotoplot() function includes some nice defaults for ts objects:
+```{r}
+autoplot(melsyd[, "Economy.Class"]) +
+  labs(
+    title = 'Economy Class Passengers: Melbourne-Sydney',
+    subtitle = 'Ansett Airlines',
+    x = 'Date (Weekly)',
+    y = 'Thousands of Passengers'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+The drop to 0 in 1989 is the result of a trade dispute, and the drop in 1992 is the result of a pilot program in which economy seats where exchanged for business class.
+
+```{r}
+autoplot(a10) +
+  scale_y_continuous(labels = dollar) +
+  labs(
+    title = 'Antidiabetic Drug Sales',
+    subtitle = 'Australia',
+    x = 'Date (Monthly)',
+    y = 'Millions of Dollars'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+## Time Series Patterns
+Key Terms:
+  1) Trend - long-term increase or decrease in the data
+  2) Seasonality - changes in data with a fixed and known frequency; e.g. months of the year
+  3) Cyclicity - longer-term (usually > 2 yrs) rises and falls in data that are not of a fixed frequency; e.g. business cycle
+## Seasonal Plots
+Use ggseasonplot() to reindex graph to show seasonality through the years:
+```{r}
+ggseasonplot(a10, year.labels = T, year.labels.left = T) +
+  scale_y_continuous(labels = dollar) +
+  labs(
+    title = 'Seasonal Plot of Antidiabetic Drug Sales',
+    subtitle = 'Australia',
+    y = 'Millions of Dollars'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+The function also includes the 'polar' argument for an interesting variation on the visual:
+```{r}
+ggseasonplot(a10, polar = T) +
+  scale_y_continuous(labels = dollar) +
+  labs(
+    title = 'Seasonal Plot of Antidiabetic Drug Sales',
+    subtitle = 'Australia',
+    y = 'Millions of Dollars'
+  ) +
+    guides(color = guide_legend(ncol = 2)) +
+  theme(
+    plot.title = element_text(hjust = .5),
+    plot.subtitle = element_text(hjust = .5),
+    legend.title = element_text(hjust = .5)
+  )
+```
+(I personally don't like this as much; the trend is much more obvious than the seasonality here imo.)
+## Seasonal subseries plots
+Yet another way of view seasonal patterns that is helpful for seeing changes in seasonality is the seasonal subseries plot:
+```{r}
+ggsubseriesplot(a10) +
+  scale_y_continuous(labels = dollar) +
+  labs(
+    title = 'Seasonal Subseries Plot of Antidiabetic Drug Sales',
+    subtitle = 'Australia',
+    y = 'Millions of Dollars'
+  ) +
+  guides(color = guide_legend(ncol = 2)) +
+  theme(
+    plot.title = element_text(hjust = .5),
+    plot.subtitle = element_text(hjust = .5),
+    legend.title = element_text(hjust = .5)
+  )
+```
+Blue lines are the means of each seasonality component. This particular series shows no fluctuation in the seasonality component.
+## Scatterplots
+### Correlation
+Scatterplots can be useful for examing the relationship between two time series:
+```{r}
+autoplot(elecdemand[, c('Demand', 'Temperature')], facets = T) +
+  labs(
+    title = 'Electricity Demand and Temperature',
+    subtitle = 'Victoria, Australia',
+    y = 'Gigawatts/Degrees Celsius'
+  ) +
+  theme(
+    plot.title = element_text(hjust = .5),
+    plot.subtitle = element_text(hjust = .5),
+    legend.title = element_text(hjust = .5)
+  )
+```
+
+```{r}
+qplot(Temperature, Demand, data = as.data.frame(elecdemand)) +
+  labs(
+    title = 'Electricity Demand and Temperature',
+    subtitle = 'Victoria, Australia',
+    x = 'Temperature (Degrees Celsius)',
+    y = 'Demand (Gigawatts)'
+  ) +
+  theme(
+    plot.title = element_text(hjust = .5),
+    plot.subtitle = element_text(hjust = .5),
+    legend.title = element_text(hjust = .5)
+  )
+```
+Both the effects of air conditioning (higher demand on hotter days) and heating are visible.
+
+### Matrices
+Two-variable scatterplots can be extended to n-variable matrices:
+```{r}
+autoplot(visnights[, 1:5], facets = T) +
+  ylab('# Visitor Nights/Quarter (millions)')
+```
+
+Using the GGally package:
+```{r}
+ggpairs(as.data.frame(visnights[, 1:5]), progress = F)
+```
+
+## Lag Plots
+This type of plot graphs a line connecting $y_t$ and $y_{t-k}$ for each lag $k$:
+```{r}
+gglagplot(window(ausbeer, start = 1992)) # window is taken because trend dominates series before this
+```
+When the squiggles are grouped around the dashed line, that means that the series exhibits autocorrelation at that lag. The strong autocorrelation at lags 4 and 8 is also evidence of seasonality in this case.
+## Autocorrelation
+Autocorrelation is the correlation between lagged values of a time series. It can be written:
+\[
+r_k = \frac{\sum_{t=k+1}^{T}{(y_t-\bar{y})(y_{t-k}-\bar{y})}}{\sum_{t=1}^{T}{(y_t-\bar{y})^2}}
+\]
+The autocorrelation coefficients are plotted as follows in a correlogram:
+```{r}
+ggAcf(window(ausbeer, start = 1992)) +
+  labs(title = 'Australian Beer Production', subtitle = '1992 and After') +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+The blue dashed lines indicate the threshold at which an autocorrelation is significantly different from 0.
+When data are trended rather than seasonal, the autocorrelations start off large for small lags and slowly decay. It is also possible to see both this effect and the effect of seasonality as above:
+```{r}
+ggAcf(window(elec, start=1980), lag = 48) +
+  labs(title = 'Monthly Australian Electricity Demand', subtitle = '1980-1995') +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+## Excercises
+1)
+  a)
+```{r}
+frequency(gold)
+```
+It's actually daily per help page.
+
+  b)
+```{r}
+autoplot(gold)
+```
+
+  c)
+```{r}
+as.Date('1985-01-01') + which.max(gold) # assuming this is the full year and not trading days
+```
+4)
+```{r}
+autoplot(lynx)
+```
+
+```{r}
+frequency(lynx)
+```
+
+# Chapter 3: The Forecaster's Toolbox
+## Simple Forecasting Methods
+Throughout, y is a ts object to forecast from and h the number of periods ahead to forecast
+Average Method - all future values are equal to the mean of experience
+  - Use meanf(y, h)
+Naive Method - all future values are equal to the last observation
+  - Use naive(y, h) or rwf(y, h)
+    - rwf stands for 'random walk forecast,' which is equivalent to the naive method
+Seasonal naive method- all future values of season s are equal to the last value of season s in experience
+  - Use snaive(y, h)
+Drift method - extrapolates future values from line drawn through first and last observation
+  - Use rwf(y, h, drift = T)
+Although these methods may occasionally by the best available for a given problem, they are more useful as benchmarks.
+
+## Transformations and adjustments
+Calendar adjustments - some variation in seasonal data may be due simply to the different number of days in a given period, e.g. months. In general, it is better to remove this variation before fitting a model. Use the monthdays() function to remove variation in monthly data due to the different number of days in each month:
+```{r}
+autoplot(cbind(Monthly = milk, DailyAverage = milk/monthdays(milk)), facet = T) +
+  labs(
+    title = 'Milk Production per Cow',
+    x = 'Date',
+    y = 'Pounds'
+  ) +
+  theme(plot.title = element_text(hjust = .5))
+```
+See also the bizdays package.
+Population adjustments - any data that can be affected by population change should be adjusted to a per capita basis.
+Inflation adjustments - any data that can be affected by the value of money should be adjusted to a common dollar level.
+Mathematical transformations-
+  -log transform - converts data to percentage change; also constrains forecasts to be positive on original scale
+  -power transform - so called because they can be written in the form $w_t = y_t^p$.
+  -Box-Cox transformations - includes both of above as instances; define as
+\[
+w_t = \begin{cases}
+        log(y_t) & \lambda=0;\\
+        (y_t^\lambda-1)/\lambda & \text{otherwise}
+      \end{cases}
+\]
+You can use the BoxCox.lambda() function to choose the optimal value of lambda:
+```{r}
+autoplot(elec) +
+  labs(
+    title = 'Monthly Australian Electricity Production',
+    x = 'Date',
+    y = 'Gigawatts'
+  ) +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+```{r}
+lambda <- BoxCox.lambda(elec)
+autoplot(BoxCox(elec, lambda)) +
+  labs(
+    title = 'Monthly Electricity Production',
+    subtitle = paste('Transformed with Box-Cox lambda =', lambda),
+    x = 'Date',
+    y = 'Gigawatts'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+In order to recover true forecasts after transformation, they must be back-transformed:
+\[
+w_t = \begin{cases}
+        exp(w_t) & \lambda=0;\\
+        (\lambda w_t+1)^{1/\lambda} & \text{otherwise}
+      \end{cases}
+\]
+Some notes on Box-Cox transformation-
+  -Data must be translated up if any $y_t \leq 0$
+  -Forecasting results are usually relatively insensitive to the value of $\lambda$
+  -Although they will likely have little effect on the forecast, transformations will have a large effect on prediction intervals
+  -Bias adjustments-The back-transformed forecast will not be the mean of the forecast distribution. This is sometimes acceptable, but if the mean is required, the back-transformed mean must be calculated as follows:
+\[
+w_t = \begin{cases}
+        exp(w_t) \left( 1+\frac{\sigma_h^2}{2} \right) & \lambda=0;\\
+        (\lambda w_t+1)^{1/\lambda} \left(1+\frac{\sigma_h^2(1-\lambda)}{2(\lambda w_t + 1)^2} \right) & \text{otherwise;}
+      \end{cases}
+\]
+where $\sigma_h^2$ is the $h$-step forecast variance.
+    -Use biasadj = T (default is F) in forecasting functions to perform bias adjustment automatically.
+## Residual Diagnostics
+Residuals are the difference between the fitted and actual values. They should have two properties:
+  1) They should be uncorrelated - if they are correlated, then there is information left to extract to put into the model.
+  2) They should have zero mean - if they have a mean other than zero, then forecasts will be biased.
+It is a necessary, not sufficient, condition in order for a model to be acceptable that it satisfy these two properties.
+The following additional two properties are desirable but not necessary:
+  3) The residuals should have constant variance; and
+  4) The residuals should be normally distributed.
+Satisfying these two properties makes calculating prediction intervals easier.
+
+Example of a pipeline to test these properties:
+```{r}
+autoplot(goog200) +
+  scale_y_continuous(labels = dollar) +
+  labs(
+    title = 'Daily Closing Price of Google Stock',
+    x = 'Day',
+    y = 'Price'
+  ) +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+```{r}
+# use naive method
+res <- residuals(naive(goog200))
+autoplot(res) +
+  scale_y_continuous(labels = dollar) +
+  labs(
+    title = 'Residuals from Naive Method',
+    x = 'Day',
+    y = 'Price'
+  ) +
+  theme(plot.title = element_text(hjust = .5))
+  
+```
+The huge outlier is a gap up on strong earnngs.
+
+```{r}
+gghistogram(res) +
+  ggtitle('Histogram of Residuals') +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+```{r}
+ggAcf(res) +
+  ggtitle('ACF of Residuals') +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+Professor Hyndman was holding out on us...there is also this one function that produces all of this plus a Ljung-Box test for autocorrelation in the residuals:
+```{r}
+checkresiduals(naive(goog200))
+```
+
+## Evaluating Forecast Accuracy
+The accuracy of forecasts can only be determined by seeing how well a model performs on data that was not used to fit it.
+A few things to keep in mind-
+  -A model which fits the training data well will not necessarily forecast well.
+  -A perfect fit can always be obtained with enough parameters.
+  -Over-fitting is just as bad as missing a genuine pattern.
+### Error metrics
+Scale-dependent-
+  -Mean Absolute Error $MAE = mean(|e_t|)$; minimizing leads to median forecasts
+  -Root Mean Squared Error: $RMSE = \sqrt{mean(e_t^2)}$; minimizing leads to mean forecasts
+Scale-independent-let $p_t = 100e_t/y_t$
+  -Mean Absolute Percentage Error: $MAPE = mean(|p_t|)$
+    -Undefined if any $y_t = 0$, and unstable if close to 0
+    -Punishes negative errors more than positive
+  -Symmetric Mean Absolute Percentage Error: $sMAPE = mean(200|y_t-\hat{y_t}|/(y_t+\hat{y_t}))$
+    -Still can involve dividing by numbers close to 0, and can be negative, which is awkward given its name and intended use. Not recommended.
+Scaled errors-test set errors are scaled by forecasting error of a null method on the training data
+  -Mean Absolute Scaled Error-let
+\[
+q_j=\left( \frac{e_j}{\frac{1}{T-m}\sum_{t=m+1}^{T}{|y_t-y_{t-m}|}} \right)
+\]
+then $MASE=mean(|q_j|)$
+Use the accuracy() function to quickly view error metrics:
+```{r}
+accuracy(
+  snaive(window(ausbeer, start = 1992, end = c(2007, 4)), h = 10), # forecast from training set
+  window(ausbeer, start = 2008) # test set
+)
+```
+Time Series Cross-Validation-compute n-period-ahead forecast accuracy for all test sets with at lean m observations
+Use tsCV():
+```{r}
+goog200 %>% tsCV(forecastfunction = rwf, drift = T, h = 8) -> e
+e^2 %>% colMeans(na.rm = T) %>% sqrt
+```
+## Prediction Intervals
+Assuming normality and non-autocorrelation of errors, then simple analytic formulas for n-period ahead forecasts can be derived. If errors are not normal, then bootstrapped prediction intervals can be used by specifying bootstrap = T in forecasting functions:
+```{r}
+rwf(goog200, drift = T, bootstrap = T)
+```
+## Exercises
+1)
+```{r}
+dat <- usnetelec %>% cbind(., BoxCox(., BoxCox.lambda(.)))
+autoplot(dat) +
+  scale_color_discrete(
+    name = 'Series',
+    breaks = c('.', 'BoxCox(., BoxCox.lambda(.))'),
+    labels = c('Original', 'Transformed')
+  ) +
+  labs(
+    title = 'US Net Electricity Usage',
+    x = 'Year',
+    y = 'Gigawatts'
+  ) +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+2)
+```{r}
+dat <- cangas %>% cbind(., BoxCox(., BoxCox.lambda(.)))
+autoplot(dat) +
+  scale_color_discrete(
+    name = 'Series',
+    breaks = c('.', 'BoxCox(., BoxCox.lambda(.))'),
+    labels = c('Original', 'Transformed')
+  ) +
+  labs(
+    title = 'Monthly Canadian Gas Production',
+    x = 'Date',
+    y = 'Billions of Cubic Meters'
+  ) +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+12)
+  a)
+```{r}
+autoplot(hsales)
+```
+```{r}
+autoplot(hsales/monthdays(hsales))
+```
+It doesn't look like that helps very much in this case.
+
+```{r}
+ggseasonplot(hsales)
+```
+```{r}
+ggsubseriesplot(hsales)
+```
+
+b)
+```{r}
+train <- window(hsales, end = c(1993, 11))
+test <- window(hsales, start = c(1993, 12))
+autoplot(cbind(train, test))
+```
+
+c)
+```{r}
+m <- snaive(train, h = 24)
+accuracy(m, test)
+```
+```{r}
+checkresiduals(m)
+```
+The residuals look almost normally distributed, but they are very autocorrelated.
+
+# Time Series Regression Models
+A time series $y$ is forecast assuming it has a linear relationship with time series $x$. $y$ is called the forecast variable (elsewhere the dependent or explained variable or regressand) and $x$ the predictor variables (elsehwere independent or explanatory variables or regressors).
+## Some Useful Predictors
+Trend - 'trend' can be specified in the formula argument of the tslm() function to automatically add a trend variable
+Season - similarly to trend, specify 'season' in the formula argument of a tslm() call
+Fourier Terms - can be used as an alternative or addition to season, especially if period is large (e.g., weekly seasonality)
+  -use fourier(y, K), where y is univariate time series and K is pairs of trig terms to include
+Dummy variables - used to encode categorical information
+  -can be used to remove outliers (called a spike variable)
+  -can be used to denote regime changes (called a step variable)
+Trading days - use bizdays package
+Lagged independent variables
+Easter - use easter() function
+## Selecting Predictors
+DO NOT use visual methods or statistical significance; use measures of predictive accuracy given in CV() function:
+```{r}
+CV(tslm(Consumption ~ Income + Production + Unemployment + Savings, data = uschange))
+```
+## Forecasting with Regression
+Using regressors means that forecasts of regressors are necessary in order to produce forecasts or the dependent variable, unless they are lagged and the forecast horizon is less than or equal to that lag. This is generally self-defeating, as it is often more work to produce these forecasts unless a very simple (and probably inaccurate) method is used.
+An alternative to forecasting regressors is scenario-based forecasting, in which a deterministic scenario for the regressors is used for forecasting.
+```{r}
+m <- tslm(Consumption ~ Income + Savings + Unemployment, data = uschange)
+h <- 4
+scen_up <- data.frame(
+  Income = rep(1, times = h),
+  Savings = rep(.5, times = h),
+  Unemployment = rep(0, times = h)
+)
+fcast_up <- forecast(m, newdata = scen_up)
+scen_dn <- data.frame(
+  Income = rep(-1, times = h),
+  Savings = rep(-.5, times = h),
+  Unemployment = rep(0, times = h)
+)
+fcast_dn <- forecast(m, newdata = scen_dn)
+autoplot(uschange[, "Consumption"]) +
+  autolayer(fcast_up, PI = T, series = 'Up') +
+  autolayer(fcast_dn, PI = T, series = 'Down') +
+  labs(
+    title = 'US Personal Consumption Expenditures',
+    x = 'Date',
+    y = '% Change'
+  ) +
+  guides(color = guide_legend(title = 'Scenario')) +
+  theme(plot.title = element_text(hjust = .5), legend.title = element_text(hjust = .5))
+```
+## Nonlinear Regression
+Response or predictors may be transformed
+Piecewise slope variables can be added in the following way: suppose base slope variable $x_{1,t}=x$. A knot can be introduced at level $c$ by defining
+\[
+x_{2,t} = \begin{cases}
+         0 & x < c;\\
+         (x-c) & x \geq c
+         \end{cases}
+\]
+And similarly for time $t$ rather than level $c$. This is a special case of regression splines. Cubic splines will give better fit to the data, but forecasts are almost always unreliable.
+```{r}
+h <- 10
+
+# simple linear fit
+m_lin <- tslm(marathon ~ trend)
+fcast_lin <- forecast(m_lin, h)
+# simple exponential fit
+m_exp <- tslm(marathon ~ trend, lambda = 0)
+fcast_exp <- forecast(m_exp, h)
+# piecewise linear fit
+  # construct knot variables
+t <- time(marathon)
+tb1 <- 1940
+tb1 <- ts(pmax(0, t - tb1), start = 1897)
+tb2 <- 1980
+tb2 <- ts(pmax(0, t - tb2), start = 1897)
+  # model
+m_pwl <- tslm(marathon ~ t + tb1 + tb2)
+  # construct projections of predictors
+newdata <- data.frame(
+  t = t[length(t)] + seq(h),
+  tb1 = tb1[length(tb1)] + seq(h),
+  tb2 = tb2[length(tb2)] + seq(h)
+)
+  # forecast
+fcast_pwl <- forecast(m_pwl, newdata)
+# cubic spline regression
+m_spl <- tslm(marathon ~ t + I(t^2) + I(t^3) + I(tb1^3) + I(tb2^3))
+fcast_spl <- forecast(m_spl, newdata)
+
+autoplot(marathon) +
+  autolayer(fitted(m_lin), series = 'Linear') +
+  autolayer(fitted(m_exp), series = 'Exponential') +
+  autolayer(fitted(m_pwl), series = 'Piecewise Linear') +
+  autolayer(fitted(m_spl), series = 'Cubic Spline') +
+  autolayer(fcast_lin, series = 'Linear', PI = F) +
+  autolayer(fcast_exp, series = 'Exponential', PI = F) +
+  autolayer(fcast_pwl, series = 'Piecewise Linear') +
+  autolayer(fcast_spl, series = 'Cubic Spline', PI = F) +
+  labs(
+    title = 'Boston Marathon Forecasts',
+    x = 'Year',
+    y = 'Winning Time in Minutes'
+  ) +
+  theme(plot.title = element_text(hjust = .5))
+```
+## Correlation, Causation, and Forecasting
+Confounded predictors - sometimes correlated variables can confounded each other; i.e. make it impossible to extricate the true contribution of each to the dependent variable. This is only a problem for scenario forecasting.
+Multicollinearity is only a problem for R when the correlation is perfect, as is the case, for example, with the dummy variable trap, or when values of independent variables stray outside their ranges in the training data.
+## Exercises
+1)
+  a)
+```{r}
+daily20 <- head(elecdaily, 20)
+autoplot(daily20, facets = T)
+```
+```{r}
+m <- tslm(Demand ~ Temperature, data = daily20)
+m
+```
+
+  b)
+```{r}
+checkresiduals(m)
+```
+```{r}
+cbind('Fitted' = fitted(m), 'Residuals' = residuals(m)) %>%
+  as.data.frame() %>%
+  ggplot(aes(x = Fitted, y = Residuals)) +
+  geom_point()
+```
+```{r}
+daily20 %>%
+  as.data.frame() %>%
+  ggplot(aes(x = Demand, y = Temperature)) +
+  geom_point()
+```
+
+  c)
+```{r}
+fcast_15 <- forecast(m, newdata = data.frame(Temperature = 15))
+fcast_35 <- forecast(m, newdata = data.frame(Temperature = 35))
+autoplot(daily20[, "Demand"]) +
+  autolayer(fcast_35, series = '35', PI = T) +
+  autolayer(fcast_15, series = '15', PI = T)
+```
+
+5)
+  a)
+```{r}
+autoplot(log(fancy))
+```
+
+  c)
+```{r}
+m <- tslm(fancy ~ trend + season, lambda = 0)
+m
+```
+
+  d)
+```{r}
+checkresiduals(m)
+```
+Errors exhibit statistically significant autocorrelation at lags 1, 2, and maybe 3. Perhaps this is a business cycle phenomenon?
+
+```{r}
+step_var <- ts(1 * (time(fancy) >= 1990), start = 1987, frequency = 12)
+m2 <- tslm(fancy ~ trend + season + step_var, lambda = 0)
+checkresiduals(m2)
+```
+Errors are a little better, but it looks like an AR term just has to be added.
+
+# Time Series Decomposition
+## Time Series Components
+Season, Trend, Remainder
+These may be additive or mulitplicative; multiplicative can be handled by taking logs
+Seasonal adjustment is removing the seasonal compenent of a series - $y_t-S_t$ for additive and $y_t/S_t$ for multiplicative
+## Moving Averages
+Classical method of time series decomposition to get at the trend component
+## Classical Decomposition
+For a time series of seasonal period m (e.g., 4 or quarterly):
+Step 1 - If m is an even number, estimate $\hat{T_t}$ by calculating a 2Xm moving average. If m is odd, estimate using an m moving average.
+Step 2 - Subtract the estimated trend from the series: $y_t-\hat{T_t}$
+Step 3 - Estimate the seasonal component as the average of the detrended values for each season, normalizing to that they sum to 0. $\hat{S_t}$ is then this set replicated to the length of the whole series.
+Step 4 - Calculate the remainder component: $\hat{R_t}=y_t-\hat{T_t}-\hat{S_t}$
+For multiplicative decomposition, divide rather than substract.
+```{r}
+elecequip %>%
+  decompose(type = 'multiplicative') %>%
+  autoplot() +
+    labs(
+      title = 'Electrical Equipment Index',
+      subtitle = 'Classical Multiplicative Decomposition'
+    ) +
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+Problems with classical decomposition-
+  -Since trend is estimated using a centered moving average, there is no estimate of trend for the first and last $floor(m/2)$ data points.
+  -The trend estimate generally over-smooths rapid changes in trend.
+  -The seasonal component is not allowed ot vary.
+  -Not robust to outliers.
+## X11 Decomposition
+X11 is a method for decomposing quarterly and monthly data pioneered by the US Census Bureau and Statistics Canada.
+Adds several steps to correct some of the deficiencies of classical decomposition, including trend estimates for endpoints, (slow) seasonal variation, business/trading/holiday effects, the effects of some regressors, and robustness to outliers and level shifts.
+```{r}
+elecequip %>%
+  seas(x11 = '') %>%
+  autoplot() +
+  ggtitle('X11 Decomposition of Electrical Equipment Index') +
+  theme(plot.title = element_text(hjust = .5))
+```
+The components of the series can be accessed using the seasonal(), trendcycle(), and remainder() functions, and seasadj() will compute the seasonally-adjusted series.
+## SEATS Decomposition
+Stands for 'Seasonal Extraction in ARIMA Time Series'
+Developed at the Bank of Spain and widely used by government agencies
+```{r}
+elecequip %>%
+  seas() %>%
+  autoplot() +
+  ggtitle('SEATS Decomposition of Electrical Equipment Index') +
+  theme(plot.title = element_text(hjust = .5))
+```
+The same functions as in X11 decomposition can be used to access the components.
+## STL Decomposition
+STL stands for 'Seasonal and Trend Decomposition Using Loess'
+Several advantages over X11 and SEATS-
+  -can handle any type of seasonality
+  -seasonal component can change over time, with the user specifying the rate of change
+  -smoothness of trend can be controlled by user
+  -has options for robustness to outliers
+Disadvantages-
+  -does not handle trading/calendar day variation automatically
+  -additive only (but remember log transform)
+```{r}
+elecequip %>%
+  stl(t.window = 13, s.window = 'periodic', robust = T) %>%
+  autoplot()
+```
+The main parameters user can choose are t.window, which is the (odd) number of observations to use to calculate moving average, and s.window, which is the (odd) number of observations to use to calculate change in the seasonal component. Specifying s.window = 'periodic' holds the seasonality component constant. mstl() encodes as default s.window = 13, which is usually a conservative, sensible default, with t.window chosen automatically. The same methods as above are defined for the stl class.
+## Measuring Strength of Trend and Seasonality
+If the data is strongly trended, then the seasonally adjusted data should have much more variation than the remainder. Therefore the strength of trend metric is defined as:
+\[
+F_t=max \left(0, 1-\frac{Var(R_t)}{Var(T_t+R_t)} \right)
+\]
+and the strength of seasonality metric as:
+\[
+F_s=max \left(0, 1-\frac{Var(R_t)}{Var(S_t+R_t)} \right)
+\]
+## Forecasting with Decomposition
+The seasonal and trend-residual components can be forecasted separately and added back together:
+```{r}
+m <- stl(elecequip, t.window = 13, s.window = 'periodic', robust = T)
+m %>%
+  forecast(method = 'naive') %>%
+  autoplot() +
+    labs(
+      title = 'Monhtly Manufacture of Electrical Equipment Index (Euro Area)',
+      subtitle = 'Naive Forecasts of STL Components',
+      x = 'Date',
+      y = 'Index'
+    ) +
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+N.B. the uncertainty in the seasonality forecast is ignored in this method.
+## Exercises
+2)
+  a)
+```{r}
+autoplot(plastics)
+```
+
+  b)
+```{r}
+plastics %>%
+  decompose(type = 'multiplicative') %>%
+  autoplot() +
+    labs(
+      title = 'Sales of Product A',
+      subtitle = 'Classical Multiplicative Decomposition'
+    ) +
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+  d)
+```{r}
+plastics %>%
+  decompose(type = 'multiplicative') %>%
+  seasadj() %>%
+  autoplot() +
+    labs(
+      title = 'Sales of Product A',
+      subtitle = 'Seasonally Adjusted'
+    ) +
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+  e)
+```{r}
+plas_mod <- plastics
+plas_mod[35] <- plas_mod[35] + 500
+plas_mod %>%
+  decompose(type = 'multiplicative') %>%
+  seasadj() %>%
+  autoplot() +
+    labs(
+      title = 'Sales of Product A',
+      subtitle = 'Seasonally Adjusted (w/ Outlier)'
+    ) +
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+```{r}
+seasadj(decompose(plastics, type = 'multiplicative')) - seasadj(decompose(plas_mod, type = 'multiplicative'))
+```
+
+  f)
+```{r}
+plas_mod <- plastics
+plas_mod[55] <- plas_mod[55] + 500
+plas_mod %>%
+  decompose(type = 'multiplicative') %>%
+  seasadj() %>%
+  autoplot() +
+    labs(
+      title = 'Sales of Product A',
+      subtitle = 'Seasonally Adjusted (w/ Outlier)'
+    ) +
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+```{r}
+seasadj(decompose(plastics, type = 'multiplicative')) - seasadj(decompose(plas_mod, type = 'multiplicative'))
+```
+
+5)
+  a)
+```{r}
+autoplot(cangas) +
+  labs(
+    title = 'Monthly Canadian Gas Production',
+    x = 'Date',
+    y = 'Billions of Cubic Meters'
+  ) +
+  theme(plot.title = element_text(hjust = .5))
+```
+```{r}
+ggsubseriesplot(cangas)
+```
+```{r}
+ggseasonplot(cangas) + theme(plot.title = element_text(hjust = .5))
+```
+
+  b)
+```{r}
+cangas %>%
+  stl(t.window = 25, s.window = 13, robust = T) %>%
+  autoplot() +
+  ggtitle('STL Decomposition of cangas Time Series') +
+  theme(plot.title = element_text(hjust = .5))
+```
+Not really sure how to optimize the choice of t.window and s.window.
+
+  c)
+```{r}
+cangas %>%
+  seas(x11 = '') %>%
+  autoplot() +
+  ggtitle('X11 Decomposition of cangas Time Series') +
+  theme(plot.title = element_text(hjust = .5))
+```
+```{r}
+cangas %>%
+  seas() %>%
+  autoplot() +
+  ggtitle('SEATS Decomposition of cangas Time Series') +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+6)
+  a)
+```{r}
+autoplot(bricksq) +
+  ggtitle('Quarterly Clay Brick Production in Australia') +
+  theme(plot.title = element_text(hjust = .5))
+```
+```{r}
+bricksq %>%
+  stl(s.window = 'periodic') %>%
+  autoplot() +
+  labs(
+    title = 'STL Decomposition of bricksq Time Series',
+    subtitle = 'Fixed Seasonality'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+```{r}
+bricksq %>%
+  stl(s.window = 7) %>%
+  autoplot() +
+  labs(
+    title = 'STL Decomposition of bricksq Time Series',
+    subtitle = 'Floating Seasonality'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+  b)
+```{r}
+bricksq %>%
+  stl(s.window = 7) %>%
+  seasadj() %>%
+  autoplot()
+```
+
+  c)
+```{r}
+bricksq %>%
+  stl(s.window = 7) %>%
+  seasadj() %>%
+  naive() %>%
+  autoplot()
+```
+
+  d)
+```{r}
+f <- bricksq %>%
+  stlf(s.window = 7)
+autoplot(f)
+```
+
+  e)
+```{r}
+checkresiduals(f)
+```
+
+  f)
+```{r}
+bricksq %>%
+  stlf(s.window = 7, robust = T) %>%
+  checkresiduals()
+```
+
+  g)
+```{r}
+window(bricksq, end = 1992.75) %>%
+  stl(s.window = 7) %>%
+  seasadj() %>%
+  naive() %>%
+  accuracy(., window(bricksq, start = 1993))
+```
+
+```{r}
+accuracy(
+  stlf(window(bricksq, end = 1992.75), s.window = 7, robust = T),
+  window(bricksq, start = 1993)
+)
+```
+
+7)
+```{r}
+autoplot(writing)
+```
+
+```{r}
+writing %>%
+  BoxCox(., BoxCox.lambda(.)) %>%
+  stl(s.window = 'periodic') %>%
+  autoplot()
+```
+
+```{r}
+writing %>%
+  BoxCox(., BoxCox.lambda(.)) %>%
+  stl(s.window = 7, robust = T) %>%
+  autoplot()
+```
+
+```{r}
+writing %>%
+  stlf(s.window = 7, robust = T, method = 'rwdrift', lambda = BoxCox.lambda(.), biasadj = T) %>%
+  autoplot()
+```
+
+8)
+```{r}
+autoplot(fancy)
+```
+
+```{r}
+writing %>%
+  BoxCox(., BoxCox.lambda(.)) %>%
+  stl(s.window = 'per', robust = T) %>%
+  autoplot()
+```
+
+```{r}
+writing %>%
+  BoxCox(., BoxCox.lambda(.)) %>%
+  stl(s.window = 7, robust = T) %>%
+  autoplot()
+```
+
+```{r}
+writing %>%
+  stlf(s.window = 7, robust = T, method = 'rwdrift', lambda = BoxCox.lambda(.), biasadj = T) %>%
+  autoplot()
+```
+
+# Exponential Smoothing
+Forecasts using exponential smoothing methods are weighted averages of past observations, with weights decaying exponentially as observations go farther back in time.
+## Simple Exponential Smoothing
+Suitable for data with no clear trend or seasonal pattern
+Exponential smoothing can be thought of as the general case that includes the naive method (all weight to last value of response) and the average method (equal weight to last n values). Let $\alpha$ be the smoothing parameter between 1 and $T$. Then the forecast at time $T+1$ is
+\[
+\hat{y}_{T+1|T} = \alpha y_T + \alpha(1 - \alpha) y_{T-1} + \dots
+\]
+```{r}
+oildata <- window(oil, start = 1996)
+fcast <- ses(oildata, h = 5)
+accuracy(fcast)
+```
+
+```{r}
+autoplot(fcast) +
+  autolayer(fitted(fcast), series = 'Fitted') +
+  labs(x = 'Year', y = 'Millions of Tons of Oil') +
+  theme(plot.title = element_text(hjust = .5))
+```
+
+## Trend Methods
+Holt's Linear Trend Method-Estension of SES to allowing a trend:
+\[
+\begin{eqnarray}
+\hat{y}_{t+h|t} & = & \ell_t + h b_t \\
+\ell_t & = & \alpha y_t + (1 - \alpha) (\ell_{t-1} + b_{t-1}) \\
+b_t & = & \beta^\ast(\ell_t - \ell_{t-1}) + (1 - \beta^\ast) b_{t-1}
+\end{eqnarray}
+\]
+Where $\ell_t$ is an estimate of the level of the series at time $t$, $b_t$ is an estimate of the trend, $\alpha$ is the smoothing paramter for the level, and $\beta^\ast$ is the smoothing parameter for the trend
+```{r}
+ausair %>%
+  window(start = 1990) %>%
+  holt(h = 5) %>%
+  autoplot()
+```
+Damped Trend Methods-a constant linear trend forever is not credible; a parameter $\phi$ is added to Holt's equations to dampen the trend as the forecast horizon increases:
+\[
+\begin{eqnarray}
+\hat{y}_{t+h|t} & = & \ell_t + b_t \sum_{i=1}^{h}{\phi^h} \\
+\ell_t & = & \alpha y_t + (1 - \alpha) (\ell_{t-1} + \phi b_{t-1}) \\
+b_t & = & \beta^\ast (\ell_t - \ell_{t-1}) + (1 - \beta^\ast) \phi b_{t-1}
+\end{eqnarray}
+\]
+Holt's method may be understood in retrospect to be a particular case of the damped model with $\phi=1$.
+The effect of the damping parameter is that long-range forecasts converge to $\lambda_T + \frac{\phi b_t}{1 - \phi}$.
+Values of $\phi$ less than .8 therefore cause outsize effects in long-range forecasts, and values close to 1 indicate that the model can't be distinguished from a non-damped version. $\phi$ is therefore usually constrained such that $.8 < \phi < .98$.
+```{r}
+air <- window(ausair, start = 1990)
+fcast_holt <- holt(air, h = 15)
+fcast_damped <- holt(air, damped = T, phi = .9, h = 15)
+autoplot(air) +
+  autolayer(fcast_holt, series = 'Holt\'s Method', PI = F) +
+  autolayer(fcast_damped, series = 'Damped Holt\'s Method', PI = F) +
+  labs(
+    title = 'Forecasts from Holt\'s Method',
+    x = 'Year',
+    y = 'Air Passengers in Australia (millions)'
+  ) +
+  guides(color = guide_legend(title = 'Method')) +
+  theme(plot.title = element_text(hjust = .5), legend.title = element_text(hjust = .5))
+```
+## Holt-Winters' Seasonal Method
+Extension of Holt's method to capture seasonality
+Let $m$ be the number of seasons in a period. Then, for the additive method:
+\[
+\begin{eqnarray}
+\hat{y}_{t+h|t} & = & \ell_t + h b_t + s_{t+h=m(k+1)}; & k = \lfloor (h - 1) / m \rfloor \\
+\ell_t & = & \alpha (y_t - s_{t-m}) + (1 - \alpha) (\ell_{t-1} + b_{t-1}) & \\
+b_t & = & \beta^\ast (\ell_t - \ell_{t-1}) + (1 - \beta^\ast) b_{t-1} & \\
+s_t & = & \gamma (y_t - \ell_t - b_{t-1}) + (1 - \gamma) s_{t-m} &
+\end{eqnarray}
+\]
+The equation for the seasonal component can also be expressed as:
+\[
+s_t = \gamma^\ast (y_t - \ell_t) + (1 - \gamma^\ast) s_{t-m}
+\]
+Substituting in $\ell_t$, we get:
+\[
+s_t = \gamma^\ast (1 - \alpha) (y_t - \ell_{t-1} - b_{t-1}) + [(1 - \gamma^\ast(1 - \alpha)] s_{t-m}
+\]
+This is simply the seasonal equation above with $\gamma = \gamma^\ast (1 - \alpha)$. The parameter restriction is $0 \leq \gamma^\ast \leq 1$, or, equivalently, $0 \leq \gamma \leq 1 - \alpha$.
+For the multiplicative method:
+\[
+\begin{eqnarray}
+\hat{y}_{t+h|t} & = & (\ell_t + h b_t)s_{t+h-m(k+1)}; & k = \lfloor (h - 1) / m \rfloor \\
+\ell_t & = & \alpha \frac{y_t}{s_{t-m}} + (1 - \alpha) (\ell_{t-1} + b_{t-1}) & \\
+b_t & = & \beta^\ast (\ell_t - \ell_{t-1}) + (1 - \beta^\ast) b_{t-1} & \\
+s_t & = & \gamma \left(\frac{y_t}{\ell_t + b_{t-1}}\right) + (1 - \gamma) s_{t-m} &
+\end{eqnarray}
+\]
+This method can be damped, as well:
+```{r}
+aust <- window(austourists, start = 2005)
+holt_add <- hw(aust, seasonal = 'additive')
+holt_mult <- hw(aust, seasonal = 'multiplicative')
+holt_damped <- hw(aust, damped = T, seasonal = 'multiplicative')
+autoplot(aust) +
+  autolayer(holt_add, series = 'Additive Seasonality', PI = F) +
+  autolayer(holt_mult, series = 'Multiplicative Seasonality', PI = F) +
+  autolayer(holt_damped, series = 'Multiplicative Seasonality (Damped)', PI = F) +
+  labs(
+    title = 'International Visitors in Australia',
+    x = 'Year',
+    y = 'Visitor Nights (millions)'
+  ) +
+  guides(color = guide_legend(title = 'Method')) +
+  theme(plot.title = element_text(hjust = .5), legend.title = element_text(hjust = .5))
+```
+
+With daily data:
+```{r}
+fcast <- hw(subset(hyndsight, end = length(hyndsight) - 35), damped = T, seasonal = 'multiplicative', h = 35)
+autoplot(hyndsight)+
+  autolayer(fcast, series = 'Holt-Winters Multiplicative Damped Forecast', alpha = .5) +
+  labs(
+    title = 'Hyndsight Blog Traffic',
+    x = 'Day',
+    y = 'Pageviews'
+  ) +
+  guides(color = guide_legend(title = 'Daily Forecasts')) +
+  theme(plot.title = element_text(hjust = .5), legend.title = element_text(hjust = .5))
+```
+
+## Exponential Smoothing - State Space Models
+These models are denoted ETS(E, T, S), for (Error, Trend, Seasonal). The possible specifications for each part are Error = {A, M}, Trend = {N, A, Ad}, and Seasonal = {N, A, M}
+## Exercises
+1)
+```{r}
+autoplot(fma::pigs)
+```
+```{r}
+m <- ses(fma::pigs)
+summary(m)
+```
+
+5)
+  a)
+```{r}
+autoplot(books)
+```
+  b)
+```{r}
+p_ses <- ses(books[, "Paperback"], h = 4)
+h_ses <- ses(books[, "Hardcover"], h = 4)
+autoplot(books) +
+  autolayer(p_ses, series = 'Paperback', PI = F) +
+  autolayer(h_ses, series = 'Hardcover', PI = F)
+```
+
+  c)
+```{r}
+accuracy(p_ses)
+```
+```{r}
+accuracy(h_ses)
+```
+
+6)
+  a)
+```{r}
+p_holt <- holt(books[, "Paperback"], h = 4)
+h_holt <- holt(books[, "Hardcover"], h = 4)
+autoplot(books) +
+  autolayer(p_holt, series = 'Paperback', PI = F) +
+  autolayer(h_holt, series = 'Hardcover', PI = F)
+```
+
+  b)
+```{r}
+accuracy(p_holt)
+```
+```{r}
+accuracy(h_holt)
+```
+
+7)
+  a)
+```{r}
+autoplot(eggs)
+```
+```{r}
+autoplot(holt(eggs,h = 12))
+```
+```{r}
+autoplot(holt(eggs, h = 12, damped = T))
+```
+```{r}
+autoplot(window(eggs, start = 1980)) +
+  autolayer(holt(eggs, h = 12, damped = T, phi = .85), series = 'Phi = .85', PI = F) +
+  autolayer(holt(eggs, h = 12, damped = T, phi = .95), series = 'Phi = .95', PI = F)
+```
+```{r}
+autoplot(window(eggs, start = 1980)) +
+  autolayer(holt(eggs, h = 12, damped = T, beta = .1), series = 'Beta = .1', PI = F) +
+  autolayer(holt(eggs, h = 12, damped = T, beta = .9), series = 'Beta = .9', PI = F)
+```
+```{r}
+autoplot(window(eggs, start = 1980)) +
+  autolayer(holt(eggs, h = 12, damped = T, alpha = .1), series = 'Alpha = .1', PI = F) +
+  autolayer(holt(eggs, h = 12, damped = T, alpha = .9), series = 'Alpha = .9', PI = F)
+```
+
+10)
+  a)
+```{r}
+autoplot(ukcars)
+```
+
+  b)
+```{r}
+ukcars %>%
+  stl(s.window = 13, robust = T) %>%
+  autoplot()
+```
+
+  c)
+```{r}
+ukcars %>%
+  stl(s.window = 13, robust = T) %>%
+  forecast(h = 8, etsmodel = 'AAN', damped = T) %>%
+  autoplot()
+```
+
+  d)
+```{r}
+ukcars %>%
+  stl(s.window = 13, robust = T) %>%
+  forecast(h = 8, etsmodel = 'AAN') %>%
+  autoplot()
+```
+
+  e)
+```{r}
+ukcars %>%
+  ets() %>%
+  forecast(h = 8) %>%
+  autoplot()
+```
+
+11)
+  a)
+```{r}
+autoplot(visitors)
+```
+
+  b)
+```{r}
+train <- window(visitors, end = c(2003, 4))
+test <- window(visitors, start = c(2003, 5))
+vis_ets <- forecast(ets(train), h = 24)
+vis_ets_abc <- forecast(ets(train, model = 'AAA', lambda = 'auto'), h = 24)
+vis_sn <- snaive(train, h = 24)
+vis_stl <- train %>%
+  stlf(s.window = 7, robust = T, etsmodel = 'ZZN', lambda = BoxCox.lambda(.), biasadj = T)
+autoplot(window(visitors, start = 2000)) +
+  autolayer(vis_ets, series = 'ETS(Z, Z, Z)', PI = F) +
+  autolayer(vis_ets_abc, series = 'ETS(A, A, A)', PI = F) +
+  autolayer(vis_sn, series = 'Naive Seasonal', PI = F) +
+  autolayer(vis_stl, series = 'STL + ETS(Z, Z, Z)', PI = F)
+```
+
+  e)
+```{r}
+accuracy(vis_sn, test)
+```
+```{r}
+checkresiduals(vis_sn)
+```
+
+  f)
+```{r}
+tsCV(visitors, snaive, h = 24) %>%
+  `^`(2) %>%
+  colMeans(na.rm = T)
+```
+
+13)
+```{r}
+autoplot(ausbeer)
+```
+```{r}
+autoplot(bricksq)
+```
+```{r}
+autoplot(dole)
+```
+```{r}
+autoplot(a10)
+```
+```{r}
+autoplot(h02)
+```
+```{r}
+autoplot(usmelec)
+```
+
+```{r}
+mse <- function(obj){
+  obj %>%
+  `^`(2) %>%
+  colMeans(na.rm = T)
+}
+
+mse(tsCV(usmelec, snaive, h = 2))
+```
+```{r}
+optim_ets <- ets(usmelec, 'ZZZ')
+mse(tsCV(usmelec, function(y, h){forecast(ets(y, model = optim_ets, use.initial.values = T), h = h)}, h = 2))
+```
+
+```{r}
+mse(tsCV(usmelec, function(y, h){stlf(y, s.window = 7, lambda = BoxCox.lambda(y), biasadj = T, h = h)}, h = 2))
+```
+
+# ARIMA Modeling
+## Stationarity and Differencing
+"Stationary" means (roughly) that the properties of a time series do not depend on the point in time.
+Differencing is one way to make a time series stationary:
+```{r}
+autoplot(goog200)
+```
+```{r}
+Acf(goog200)
+```
+```{r}
+Acf(diff(goog200))
+```
+1st and 2nd differences remove trend; differencing can also be done to remove seasonality:
+```{r}
+a10 %>%
+  cbind(
+    'Monthly Sales' = .,
+    'Log Monthly Sales' = log(.),
+    'Seasonally Differenced\nLog Monthly Sales' = diff(log(.), 12)
+  ) %>%
+  autoplot(facets = T)
+```
+Both differences can be taken if necessary:
+```{r}
+usmelec %>%
+  cbind(
+    'Kwh (B)' = .,
+    'Log Kwh (B)' = log(.),
+    'Log Kwh (B) w/\nSeasonal Difference' = diff(log(.), 12),
+    'Log Kwh (B) w/\nDouble Difference' = diff(diff(log(.), 12), 1)
+  ) %>%
+  autoplot(facets = T) +
+    ggtitle('Monthly Net Electricity Demand (US)') +
+    theme(plot.title = element_text(hjust = .5))
+```
+In general, the least possible number of differences should be taken. If it seems as though both are necessary, seasonal differencing should be done first, as the resulting time series may be stationary after seasonal differencing, but not vice versa.  
+Use ndiffs() to calculate the order of differencing required - works via KPSS test for unit root:
+```{r}
+usmelec %>% log() %>% ndiffs()
+```
+Use nsdiffs() similarly:
+```{r}
+usmelec %>% log() %>% nsdiffs()
+```
+
+## Autoregressive Models
+An $AR(p)$ model may be written as:
+\[
+y_t = c + \sum_{i=1}^{p}{\phi_i y_{t-i}}
+\]
+AR(1) models are equivalent to some of the methods already seen:
+  -If $\phi=0$, then the model is white noise;
+  -If $\phi=1$ and $c=0$, then the model is a random walk;
+  -If $\phi=1$ and $c>0$, then the model is a random walk with drift;
+  -If $0<c<1$, then $y_t$ oscillates about $c$.
+## Moving Average Models
+Here, 'moving average' referes to the forecast errors, not the values of the response variable.  
+An $MA(q)$ model may be written as:
+\[
+y_t = c + \epsilon_t + \sum_{i=1}^{q}{\theta_i \epsilon_{t-i}}
+\]
+Any $AR(p)$ model is equivalent to an $MA(\infty)$ model, and the converse holds, as well, so long as each $MA$ coefficient $\theta_i$ obeys some constraints (e.g., for $q=1$, $|\theta_i| < 1$).
+## ARIMA Models
+$ARIMA(p, d, q)$ models combine differencing with autoregressive and moving average models:
+\[
+y^\prime_t = c + \sum_{i=1}^{p}{\phi_i y^\prime_{t-i}} + \sum_{i=1}^{q}{\theta_i y^\prime_{t-i}} \space ,
+\]
+where $y^\prime$ is the time series differenced $d$ times.  
+All of the models so far discussed are special cases of ARIMA models-
+  -$ARIMA(0, 0, 0), \space c = 0$ is white noise;
+  -$ARIMA(0, 1, 0), \space c = 0$ is a random walk;
+  -$ARIMA(0, 1, 0), \space |c| > 0$ is a random walk with drift;
+  -$ARIMA(p, 0, 0)$ is an $AR(p)$ model; and
+  -$ARIMA(0, 0, q)$ is an $MA(q)$ model.
+Use auto.arima() for fully automatic model selection (like ets()):
+```{r}
+autoplot(uschange[, "Consumption"])
+```
+```{r}
+m <- auto.arima(uschange[, "Consumption"], seasonal = F)
+m
+```
+```{r}
+m %>% forecast(h = 8, fan = T) %>% autoplot()
+```
+
+## Understanding ARIMA Models
+A few rules of thumb-
+  -If $c=0$ and $d=0$, then the long-term forecasts will approach 0;
+  -If $c=0$ and $d=1$, then the long-term forecasts will go to a non-zero constant;
+  -If $c=0$ and $d=2$, then the long-term forecasts will follow a linear trend;
+  -If $c \neq 0$ and $d=0$, then the long-term forecasts will approach the mean of the data;
+  -If $c \neq 0$ and $d=1$, then the long-term forecasts will follow a linear trend; and
+  -If $c \neq 0$ and $d=2$, then the long-term forecasts will follow a quadratic trend.
+  -The higher the value of $d$, the wider the prediction intervals
+    -same holds true from before about differencing-should never really go beyond 2.
+  -If the data is cyclical, then it is necessary to have $p \geq 2$.
+If it sometimes possible to tell the values of $p$ and $q$ from ACF and PACF plots:
+```{r}
+ggtsdisplay(uschange[, "Consumption"])
+```
+However, this is not the case if both $p$ and $q$ and greater than 0. If that is not the case, then-
+  -The data may follow an $ARIMA(p, d, 0)$ pattern if-
+    -The ACF is exponentially decaying or sinusoidal; and
+    -The PACF has a significant spike at lag p, but none beyond.
+  -The data may follwo an $ARIMA(0, d, q)$ pattern if-
+    -The PACF is exponentially decaying or sinusoidal; and
+    -The ACF has a significant spike at lag q, but none beyond.
+These criteria point to the data above possible belonging to an $ARIMA(3, 0, 0)$ process:
+```{r}
+Arima(uschange[, "Consumption"], order = c(3, 0, 0))
+```
+This model is actually slightly better than the one found by auto.arima() because of some shortcuts the latter takes. It can be forced to find it by setting stepwise = F and approximation = F:
+```{r}
+auto.arima(uschange[, "Consumption"], seasonal = F, stepwise = F, approximation = F)
+```
+(In this case, there was no discernable slowdown.)
+## Estimation and Order Selection
+Fitting ARIMA models is much more complex than simple regression models  
+Different software will give slightly different results because of different implementations and numerical techniques  
+Hyndman's preferred information criterion for model selection is AICc  
+  -N.B. AICc and criteria cannot be used to select the $d$ parameter because it changes the underlying data
+## ARIMA Modeling in R
+Hyndman-Khandakar algorithm for automatic Arima model selection-
+  1) Solve for $d$ parameter by repeated application of KPSS tests;
+  2) If stepwise = T (the default; see help file for full explanation):
+    a) four initial models are fit-
+      i) $ARIMA(0, d, 0)$
+      ii) $ARIMA(2, d, 2)$
+      iii) $ARIMA(1, d, 0)$
+      iv) $ARIMA(0, d, 1)$
+    b) A constant is included unless $d=2$. If $d \leq 1$, an additional model is fit-
+      v) $ARIMA(0, d, 0)$ without constant
+  3) Set current model to which of the variations has the lowest AICc.
+  4) Fit variations on current model: $p, q \pm 1$, include/exclude $c$.
+  5) Repeat steps 3 and 4 until no variations beat current model.
+Modeling procedure-
+  1) Identify characteristics of data via plotting and statistical tests.
+  2) Make any transformations or modifications to the data necessary to stabilize variance of the series.
+  3) Determine number of differences $d$ necessary to make data stationary.
+  4) Determine $p$ and $q$ parameters-e.g., (P)ACF charts.
+  5) Test variations of models to search for one with lowest AICc.
+  6) Check residuals of model for autocorrelation or failure of other conditions, and repeat steps 3-5 as necessary.
+  7) Forecast only when a model passes step 6.
+## Seasonal ARIMA Models
+ARIMA models can be extended to model seasonal data, as well. They are written $ARIMA(p,d,q)(P,D,Q)_m$, where $P$, $D$, and $Q$ are analogous to $p$, $d$, and $q$ but are seasonal and $m$ is the seasonality.
+```{r}
+autoplot(euretail) + 
+  labs(
+    x = 'Date',
+    y = 'Index Level (2005 = 100)',
+    title = 'Index of Retail Sales',
+    subtitle = 'Euro Area; Quarterly'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+```{r}
+m <- auto.arima(euretail, stepwise = F, approximation = F)
+m
+```
+```{r}
+m %>% forecast(h = 12) %>% autoplot()
+```
+
+Example: monthly H02 drug sales in Australia
+```{r}
+autoplot(h02) +
+  labs(
+    x = 'Date',
+    y = 'Sales (Millions of Scripts)',
+    title = 'H02 Drug Sales',
+    subtitle = 'Australia; Monthly'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+Log must be taken in order to stabilize the variance.
+```{r}
+lh02 <- log(h02)
+lh02 %>%
+  diff(lag = 12) %>%
+  ggtsdisplay(main = 'Seasonally Differenced H02 Sales', theme = theme(plot.title = element_text(hjust = .5)))
+```
+The PACF chart suggest an AR(3) term and a seasonal AR(2) term. The ACF plot looks a little odd, perhaps because of the much larger variance in the last few observations (likely due to incomplete reporting).
+```{r}
+(m <- Arima(h02, order = c(3, 0, 0), seasonal = c(2, 1, 0), lambda = 0))
+```
+```{r}
+checkresiduals(m)
+```
+```{r}
+(m <- auto.arima(h02, stepwise = F, approximation = F))
+```
+```{r}
+checkresiduals(m)
+```
+Sometimes, a model that checks all the boxes just isn't possible. This one can still be used for forecasting, although the prediction intervals will not be correct.
+```{r}
+h02 %>%
+  Arima(order = c(3, 1, 1), seasonal = c(0, 1, 1), lambda = 0) %>%
+  forecast(biasadj = T) %>%
+  autoplot() +
+    labs(x = 'Date', y = 'H02 Sales (Millions of Scripts)') +
+    theme(plot.title = element_text(hjust = .5))
+```
+
+## ARIMA vs. ETS
+Only linear ETS models have identical ARIMA counterparts. Non-linear ETS models have no ARIMA counterpart, and stationary ARIMA models have no ETS counterpart.
+Example: auto.arima() vs. ets() on non-seasonal data
+```{r}
+fets <- function(x, h) forecast(ets(x), h = h)
+farima <- function(x, h) forecast(auto.arima(x), h = h)
+
+air <- window(ausair, start = 1990)
+
+data.table(
+  metric = 'RMSE',
+  arima = tsCV(air, farima, h = 1) %>% `^`(2) %>% mean(na.rm = T) %>% sqrt(),
+  ets = tsCV(air, fets, h = 1) %>% `^`(2) %>% mean(na.rm = T) %>% sqrt()
+)
+```
+The ETS model wins according to RMSE.
+```{r}
+air %>% ets() %>% forecast() %>% autoplot()
+```
+
+Example: auto.arima() vs. ets() on seasonal data
+```{r}
+cement <- window(qcement, start = 1988)
+train <- window(cement, end = c(2007, 4))
+```
+```{r}
+(m_arima <- auto.arima(train))
+```
+```{r}
+checkresiduals(m_arima)
+```
+```{r}
+(m_ets <- ets(train))
+```
+```{r}
+checkresiduals(m_ets)
+```
+```{r}
+acc_arima <- m_arima %>%
+  forecast(h = 4*(2013-2007)+1) %>%
+  accuracy(qcement)%>%
+  as.data.frame() %>%
+  setDT(keep.rownames = T)
+acc_arima <- acc_arima[, .(Model = 'Arima', Dataset = rn, RMSE, MASE)]
+acc_ets <- m_ets %>%
+  forecast(h = 4*(2013-2007)+1) %>%
+  accuracy(qcement) %>%
+  as.data.frame() %>%
+  setDT(keep.rownames = T)
+acc_ets <- acc_ets[, .(Model = 'ETS', Dataset = rn, RMSE, MASE)]
+rbind(acc_arima, acc_ets)
+```
+ETS wins again. Note that training set performance is never indicative of forecasting accuracy.
+```{r}
+autoplot(cement) +
+  autolayer(forecast(m_arima, h = 4*(2013-2007)+1), PI = F, series = 'Arima Model') +
+  autolayer(forecast(m_ets, h = 4*(2013-2007)+1), PI = F, series = 'ETS Model')
+```
+
+## Exercises
+7)
+  a)
+```{r}
+autoplot(wmurders) +
+  labs(
+    title = 'Number of Women Murdered Each Year',
+    subtitle = 'United States; per 100,000',
+    x = 'Year',
+    y = ''
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+```{r}
+ggtsdisplay(wmurders, theme = theme(plot.title = element_text(hjust = .5)))
+```
+```{r}
+ggtsdisplay(diff(wmurders, 1), theme = theme(plot.title = element_text(hjust = .5)))
+```
+
+  d)
+```{r}
+(m <- Arima(wmurders, order = c(0, 1, 0)))
+```
+```{r}
+checkresiduals(m)
+```
+
+  e-f)
+```{r}
+m %>% forecast(h = 3) %>% autoplot()
+```
+
+  g)
+```{r}
+(m2 <- auto.arima(wmurders, stepwise = F, approximation = F))
+```
+```{r}
+checkresiduals(m2)
+```
+```{r}
+m2 %>% forecast(h = 3) %>% autoplot()
+```
+
+8)
+  a)
+```{r}
+(m <- auto.arima(austa))
+```
+```{r}
+checkresiduals(m)
+```
+  b-e)
+```{r}
+autoplot(austa) +
+  autolayer(
+    forecast(Arima(austa, order = c(0, 1, 1), include.drift = T, method = 'ML'), h = 10),
+    PI = F,
+    series = 'ARIMA(0, 1, 1) + c'
+  ) +
+  autolayer(
+    forecast(Arima(austa, order = c(0, 1, 1), include.drift = F, method = 'ML'), h = 10),
+    PI = F,
+    series = 'ARIMA(0, 1, 1)'
+  ) +
+  autolayer(
+    forecast(Arima(austa, order = c(0, 1, 0), include.drift = F, method = 'ML'), h = 10),
+    PI = F,
+    series = 'ARIMA(0, 1, 0)'
+  ) +
+  autolayer(
+    forecast(Arima(austa, order = c(2, 1, 3), include.drift = T, method = 'ML'), h = 10),
+    PI = F,
+    series = 'ARIMA(2, 1, 3) + c'
+  ) +
+  autolayer(
+    forecast(Arima(austa, order = c(2, 1, 3), include.drift = F, method = 'ML'), h = 10),
+    PI = F,
+    series = 'ARIMA(2, 1, 3)'
+  ) +
+  autolayer(
+    forecast(Arima(austa, order = c(0, 0, 1), include.constant = T, method = 'ML'), h = 10),
+    PI = F,
+    series = 'ARIMA(0, 0, 1) + c'
+  ) +
+  autolayer(
+    forecast(Arima(austa, order = c(0, 0, 0), include.constant = T, method = 'ML'), h = 10),
+    PI = F,
+    series = 'ARIMA(0, 0, 0) + c'
+  ) +
+  autolayer(
+    forecast(Arima(austa, order = c(0, 2, 1), include.constant = F, method = 'ML'), h = 10),
+    PI = F,
+    series = 'ARIMA(0, 2, 1)'
+  )
+```
+
+10)
+  a)
+```{r}
+autoplot(austourists)
+```
+
+  b)
+```{r}
+ggAcf(austourists)
+```
+
+  c)
+```{r}
+ggPacf(austourists)
+```
+
+  d)
+```{r}
+austourists %>% diff(lag = 4) %>% autoplot()
+```
+It looks like ARIMA(0, 0, 0)(1, 0, 0)[4] + c to me.
+
+  e)
+```{r}
+(m <- auto.arima(austourists))
+```
+Kinda close!
+```{r}
+autoplot(austourists) +
+  autolayer(
+    forecast(Arima(austourists, order = c(0, 0, 0), seasonal = c(1, 0, 0), include.constant = T)),
+    PI = F,
+    series = 'Me'
+  ) +
+  autolayer(
+    forecast(Arima(austourists, order = c(1, 0, 0), seasonal = c(1, 1, 0), include.constant = T)),
+    PI = F,
+    series = 'auto.arima'
+  )
+```
+Whoops - mine doesn't include a trend :/.
+
+11)
+  a)
+```{r}
+autoplot(usmelec)
+```
+
+  b)
+```{r}
+(lambda <- BoxCox.lambda(usmelec))
+```
+```{r}
+tusel <- BoxCox(usmelec, lambda)
+autoplot(tusel)
+```
+
+  c)
+```{r}
+tusel %>% diff(lag = 1) %>% autoplot()
+```
+
+  d)
+```{r}
+ggtsdisplay(diff(tusel, lag = 1))
+```
+```{r}
+tusel %>% diff(lag = 12) %>% diff(lag = 1) %>% ggtsdisplay()
+```
+
+```{r}
+# function to capture trace = T output for examining "close second" models
+# I'll eventually think of a better name
+# note that the stepwise, approximation, and trace arguments for auto.arima cannot be supplied to 
+# otto.arima because a fixed value is passed in
+otto.arima <- function(y, ic = 'aic', all_models = T, cutoff = 5, return_best = F, ...){
+  out <- capture.output({
+    m <- auto.arima(y = usmelec, ic = ic, stepwise = F, approximation = F, trace = T, ...)
+  })
+  out_data <- setDT(read.table(con <- textConnection(out), sep = ':', as.is = T))
+  close(con)
+  ic <- toupper(ic)
+  setnames(out_data, 'V1', 'Model')
+  out_data <- out_data[!(Model %like% 'Best'), ]
+  out_data[, Model := str_remove_all(Model, pattern = fixed(' '))]
+  out_data[, ic := as.numeric(V2)]
+  setnames(out_data, 'ic', ic)
+  out_data[, V2 := NULL]
+  ret <- list('model' = NULL, 'table' = NULL)
+  if(return_best) ret$model <- m
+  if(!all_models){
+    if(ic == 'AIC') m_ic <- m$aic
+    if(ic == 'AICC') m_ic <- m$aicc
+    if(ic == 'BIC') m_ic <- m$bic
+    ret$table <- out_data[abs(m_ic - get(ic)) < cutoff, ]
+  } else{
+    ret$table <- out_data
+  }
+  return(ret)
+}
+
+l <- otto.arima(usmelec, lambda = lambda, all_models = F, return_best = T)
+l$table[order(AIC), ][1:10]
+```
+
+```{r}
+# function to extract ARIMA parameters from string describing model output by auto.arima(trace = T)
+extract_params <- function(model_string){
+  model_string %>%
+    str_split(pattern = fixed(')')) %>%
+    unlist() %>%
+    paste(collapse = ',') %>%
+    str_remove_all(pattern = '[ARIMA()\\[\\]]') %>%
+    str_split(pattern = fixed(',')) %>%
+    unlist() %>%
+    structure(names = c('p', 'd', 'q', 'P', 'D', 'Q', 's')) %>%
+    as.list()
+}
+
+l$table$Model %>%
+  lapply(extract_params) %>%
+  rbindlist()
+```
+
+```{r}
+autoplot(window(usmelec, start = 2005)) +
+  autolayer(
+    forecast(Arima(usmelec, order = c(1, 1, 1), seasonal = c(2, 1, 1), lambda = lambda), h = 12, biasadj = T),
+    PI = F,
+    series = 'ARIMA(1,1,1)(2,1,1)[12]'
+  ) +
+  autolayer(
+    forecast(Arima(usmelec, order = c(1, 1, 1), seasonal = c(0, 1, 1), lambda = lambda), h = 12, biasadj = T),
+    PI = F,
+    series = 'ARIMA(1,1,1)(0,1,1)[12]'
+  ) +
+  autolayer(
+    forecast(Arima(usmelec, order = c(1, 1, 1), seasonal = c(0, 1, 2), lambda = lambda), h = 12, biasadj = T),
+    PI = F,
+    series = 'ARIMA(1,1,1)(0,1,2)[12]'
+  )
+```
+
+  e)
+```{r}
+checkresiduals(Arima(usmelec, order = c(1, 1, 1), seasonal = c(0, 1, 1), lambda = lambda))
+```
+
+  f-g)
+```{r}
+Arima(usmelec, order = c(1, 1, 1), seasonal = c(0, 1, 1), lambda = lambda) %>%
+  forecast(h = 12*15, biasadj = T) %>%
+  autoplot()
+```
+
+12)
+  a)
+```{r}
+autoplot(mcopper)
+```
+
+```{r}
+(lambda <- BoxCox.lambda(mcopper))
+```
+
+  b-c)
+```{r}
+l <- otto.arima(mcopper, ic = 'aicc', all_models = F, return_best = F, lambda = lambda)
+l$table[order(AICC), ][1:10]
+```
+
+  d)
+```{r}
+m <- Arima(mcopper, order = c(1, 1, 1), seasonal = c(0, 1, 1), lambda = lambda)
+checkresiduals(m)
+```
+
+  e)
+```{r}
+m %>%
+  forecast(h = 24, biasadj = T) %>%
+  autoplot()
+```
+
+  f)
+```{r}
+ets(mcopper) %>%
+  forecast(h = 24) %>%
+  autoplot()
+```
+
+13)
+  a)
+```{r}
+autoplot(auscafe)
+```
+
+```{r}
+(lambda <- BoxCox.lambda(auscafe))
+```
+
+  b)
+```{r}
+ndiffs(BoxCox(auscafe, lambda = lambda))
+```
+
+  c)
+```{r}
+l <- otto.arima(auscafe, ic = 'aicc', all_models = F, lambda = lambda)
+l$table[order(AICC), ][1:10]
+```
+
+  d)
+```{r}
+m <- Arima(auscafe, order = c(2, 1, 1), seasonal = c(0, 1, 1), lambda = lambda)
+checkresiduals(m)
+```
+Can't get rid of serial correlation in the residuals...
+
+  e-f)
+```{r}
+autoplot(window(auscafe, start = 2005)) +
+  autolayer(forecast(m, h = 24, biasadj = T), PI = F, series = 'ARIMA') +
+  autolayer(forecast(ets(auscafe, lambda = lambda), h = 24, biasadj = T), PI = F, series = 'ETS')
+```
+
+14)
+```{r}
+autoplot(window(auscafe, start = 2005)) +
+  autolayer(forecast(m, h = 24, biasadj = T), PI = F, series = 'ARIMA') +
+  autolayer(forecast(ets(auscafe, lambda = lambda), h = 24, biasadj = T), PI = F, series = 'ETS') +
+  autolayer(stlf(auscafe, method = 'arima', lambda = lambda, h = 24, biasadj = T), PI = F, series = 'STL+ARIMA') +
+  autolayer(stlf(auscafe, method = 'ets', lambda = lambda, h = 24, biasadj = T), PI = F, series = 'STL+ETS')
+```
+
+18)
+  a)
+```{r}
+x <- ts(dmseries('http://bit.ly/2P6WK3B')[, 1], start = c(1996, 1), frequency = 12)
+autoplot(x)
+```
+
+  b)
+```{r}
+ggseasonplot(x)
+```
+
+```{r}
+ggsubseriesplot(x)
+```
+
+```{r}
+x %>% stl(s.window = 7, robust = T) %>% autoplot()
+```
+
+```{r}
+(outliers <- tso(x))
+```
+
+
+```{r}
+plot(outliers)
+```
+
+```{r}
+tsoutliers(x)
+```
+Doesn't at all capture the same things. Look into this.
+
+```{r}
+xreg <- data.frame(fx = outliers$effects)
+m <- Arima(x, order = c(2, 0, 0), seasonal = c(2, 1, 0), xreg = xreg)
+newxreg <- data.frame(fx = rep(as.numeric(tail(xreg, 1)), times = 48))
+m %>%
+  forecast(xreg = newxreg) %>%
+  autoplot() +
+    scale_y_continuous(labels = comma) +
+    labs(
+      title = 'Forecast of US Domestic Passenger Seat Miles',
+      subtitle = 'ARIMA w/ Outlier Adjustments',
+      x = 'Date',
+      y = 'Miles'
+    ) +
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+```{r}
+checkresiduals(m)
+```
+
+```{r}
+m <- ets(x)
+autoplot(forecast(x, h = 48)) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = 'Forecast of US Domestic Passenger Seat Miles',
+    subtitle = 'Naive ETS',
+    x = 'Date',
+    y = 'Miles'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+```{r}
+checkresiduals(m)
+```
+
+There's the one enormous outlier (much steeper September decline than normal after the dotcom crash) that prevents the model from quite working properly. It also seems like the rather high number of almost significant autocorrelations is causing the model to fail the Ljung-Box test. ARIMA w/ adjustments all the way.  
+Interestingly, it is not currently known how to incorporate external regressors into the ETS framework in a straightforward way (see [this Hyndsight blog post](https://robjhyndman.com/hyndsight/ets-regressors/).
+
+# Dynamic Regression Models
+## Dynamic Harmonic Regression
+Use Fourier terms to capture multiple seasonality or seasonality greater than weekly:
+```{r}
+cafe04 <- window(auscafe, start = 2004)
+plots <- list()
+for(i in 1:6){
+  m <- auto.arima(cafe04, xreg = fourier(cafe04, K = i), seasonal = F, lambda = 0)
+  plots[[i]] <- m %>%
+    forecast(xreg = fourier(cafe04, K = i, h = 24), biasadj = T) %>%
+    autoplot() +
+      labs(x = paste('K =', i, 'AICc =', round(m$aicc, 2)), y = '') +
+      ylim(1.5, 4.7) +
+      theme(plot.title = element_text(size = 8))
+}
+grid.arrange(plots[[1]], plots[[2]], plots[[3]], plots[[4]], plots[[5]], plots[[6]])
+```
+
+## Exercises
+1)
+  a)
+```{r}
+autoplot(advert, facets = T)
+```
+
+  b)
+```{r}
+(m <- tslm(sales ~ advert, data = advert))
+```
+
+  c)
+```{r}
+ggtsdisplay(ts(m$residuals))
+```
+
+```{r}
+Box.test(m$residuals, type = 'Ljung')
+```
+
+  d)
+```{r}
+(m <- Arima(advert[, "sales"], xreg = advert[, "advert"], order = c(0, 0, 0)))
+```
+It's identical!
+
+```{r}
+checkresiduals(m)
+```
+
+  e)
+```{r}
+l <- otto.arima(advert[, "sales"], xreg = as.data.frame(advert[, "advert"]), ic = 'aicc', return_best = T)
+l$table[order(AICC), ][1:10]
+```
+
+  f)
+```{r}
+checkresiduals(l$model)
+```
+
+  g)
+```{r}
+l$model %>%
+  forecast(xreg = data.frame(rep(10, times = 6))) %>%
+  autoplot()
+```
+
+2)
+  a)
+```{r}
+autoplot(huron)
+```
+
+```{r}
+knot_point <- 1920
+xreg <- data.frame(
+  t = pmax(0, time(huron - knot_point))
+)
+l <- otto.arima(huron, return_best = T, xreg = xreg, seasonal = F, d = 0)
+l$model
+```
+
+```{r}
+l$model %>%
+  forecast(xreg = (max(xreg) + 1):(max(xreg + 30))) %>%
+  autoplot()
+```
+
+3)
+  a)
+```{r}
+autoplot(motel, facets = T)
+```
+
+```{r}
+price <- motel[, "Takings"] / motel[, "Roomnights"] * 1000
+autoplot(price)
+```
+
+```{r}
+(lambda <- BoxCox.lambda(price))
+```
+
+```{r}
+price %>%
+  cbind(raw = ., trans = BoxCox(., lambda)) %>%
+  autoplot(facets = T)
+```
+
+  d)
+```{r}
+l <- otto.arima(price, xreg = as.data.frame(motel[, "CPI"]), lambda = lambda, return_best = T)
+l$table[order(AICC), ][1:10]
+```
+
+```{r}
+l$model
+```
+
+  e)
+```{r}
+l$model %>%
+  forecast(xreg = data.frame(naive(motel[, "CPI"], h = 12)$mean), biasadj = T) %>%
+  autoplot() + labs(subtitle = 'Assuming no change in inflation; ignoring uncertainty in inflation forecast')
+```
+
+4)
+  a)
+```{r}
+autoplot(gasoline)
+```
+
+```{r}
+t <- time(gasoline)
+t2 <- ts(pmax(0, t - 2007.678), start = start(gasoline))
+t3 <- ts(pmax(0, t - 2012.009), start = start(gasoline))
+xreg <- data.frame(t, t2, t3)
+bestfit <- list()
+AIC.list <- function(object) return(Inf)
+for(i in 1:26){
+  fou <- fourier(gasoline, K = i)
+  colnames(fou) <- str_remove_all(colnames(fou), pattern = fixed('-'))
+  dataset <- cbind(
+    as.data.frame(gasoline),
+    xreg,
+    fou
+  )
+  m <- tslm(
+    as.formula(paste('x', paste(colnames(dataset)[colnames(dataset) != 'x'], collapse = ' + '), sep = ' ~ ')),
+    data = dataset
+  )
+  if(AIC(m) < AIC(bestfit)){
+    bestfit <- m
+  } else {
+    break
+  }
+}
+bestfit
+```
+
+```{r}
+fou_fcast <- fourier(gasoline, K = 10, h = 52)
+colnames(fou_fcast) <- str_remove_all(colnames(fou_fcast), pattern = fixed('-'))
+t_fcast <- seq(from = max(time(gasoline)) + 1/frequency(gasoline), by = 1/frequency(gasoline), length.out = 52)
+t2_fcast <- seq(from = max(t2) + 1/frequency(gasoline), by = 1/frequency(gasoline), length.out = 52)
+t3_fcast <- seq(from = max(t3) + 1/frequency(gasoline), by = 1/frequency(gasoline), length.out = 52)
+newxreg <- cbind(
+  data.frame(
+    t = t_fcast,
+    t2 = t2_fcast,
+    t3 = t3_fcast
+  ),
+  fou_fcast
+)
+bestfit %>%
+  forecast(newdata = newxreg) %>%
+  autoplot()
+```
+
+```{r}
+checkresiduals(ts(bestfit$residuals))
+```
+
+  b)
+```{r}
+l <- otto.arima(
+  gasoline,
+  seasonal = F,
+  return_best = T,
+  xreg = dataset[, !(colnames(dataset) %like% '11' | colnames(dataset) == 'x')]
+)
+l$table[order(AICC), ][1:10]
+```
+
+```{r}
+l$model %>%
+  forecast(xreg = newxreg) %>%
+  autoplot()
+```
+
+```{r}
+checkresiduals(l$model)
+```
+
+```{r}
+l <- otto.arima(
+  window(gasoline, start = 2000),
+  seasonal = F,
+  return_best = T,
+  xreg = dataset[time(dataset$x) > 2000, !(colnames(dataset) %like% '11' | colnames(dataset) == 'x')]
+)
+l$table[order(AICC), ][1:10]
+```
+
+```{r}
+checkresiduals(l$model)
+```
+
+```{r}
+(outliars <- tso(gasoline))
+```
+
+```{r}
+l$model %>%
+  forecast(xreg = newxreg) %>%
+  autoplot()
+```
+
+```{r}
+plot(outliars)
+```
+
+# Advanced Forecasting Methods
+## Complex Seasonality
+The higher the frequency of a time series, the more complex its seasonality  
+ts class can only handle single integer seasonality - use msts class for multiple, non-integer seasonality
+Only include seasonalities with frequency less than the length of your data - e.g., don't include annual seasonality, even if it is known to occur in data of the same type as yours, if you have less than a year of data  
+```{r}
+# Example - dataset of retail banking call arrivals per 5-minute interval between 7 and 9:05 am for 33 weeks
+autoplot(calls) +
+  labs(
+    title = 'Retail Banking Calls',
+    subtitle = '7:00-9:05 am; 5-minute intervals',
+    x = 'Week',
+    y = 'Volume'
+  ) +
+  scale_x_continuous(breaks = seq(from = 1, to = 33, by = 2)) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+```{r}
+autoplot(window(calls, end = 4)) +
+  labs(
+    title = 'Retail Banking Calls',
+    subtitle = 'First Four Weeks',
+    x = 'Week',
+    y = 'Volume'
+  ) +
+  scale_x_continuous(minor_breaks = seq(from = 1, to = 4, by = .2)) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+mstl() is a version of stl designed to handle mutliple seasonality
+```{r}
+calls %>%
+  mstl() %>%
+  autoplot() +
+    xlab('Week')
+```
+
+```{r}
+calls %>%
+  stlf(lambda = 0, biasadj = T) %>% # add log transform to disallow forecasts < 0
+  autoplot() +
+    xlab('Week')
+```
+
+Dynamic harmonic regression can also be used to handle multiple seasonality
+```{r}
+# fourier terms already chosen; picking these would be a bear
+calls %>%
+  auto.arima(seasonal = F, lambda = 0, xreg = fourier(., K = c(10, 10))) %>%
+  forecast(xreg = fourier(calls, K = c(10, 10), h = 2 * 169), biasadj = T) %>%
+  autoplot(include = 5 * 169) +
+    labs(x = 'Week', y = 'Volume') +
+    theme(plot.title = element_text(hjust = .5))
+```
+Holy moly that takes a long time to run!
+
+TBATS models - automated combination of Box-Cox transformation, Fourier terms, and ETS model  
+Seasonality is allowed to change slowly over time  
+Slow to estimate; also give unacceptably wide prediction intervals relatively often
+```{r}
+# use smaller set to speed up fitting
+calls %>%
+  subset(start = length(calls) - 2000) %>%
+  tbats() %>%
+  forecast(h = 2 * 169, biasadj = T) %>%
+  autoplot(include = 5 * 169) +
+    labs(x = 'Week', y = 'Volume') +
+    theme(plot.title = element_text(hjust = .5))
+```
+Signature is $TBATS(\omega, \{p, q\}, \phi, \{<m_1, k_1>, ..., <m_i, k_i>\})$:  $\omega$ is Box-Cox parameter, $\{p, q\}$ are $p$ and $q$ parameters of ARMA errors, $\phi$ is damping parameter as in Holt-Winters, and $\{<m_i, k_i\}$ are the seasonal period $i$ and the number of Fourier terms used to model it.
+
+## Vector Autoregressions
+All above models assume a unidirectional relationship between predictor variables and response variables - sometimes a feedback relationship is more appropriate  
+Vector Autoregressive (VAR) framework allows for this - one equation per time-indexed variable in the system  
+Let N be the number of variables in the system and L the number of lags of each variable considered. Then the model may be written as
+\[
+y_{i,t} = \sum_{i=1}^{N}{\sum_{j=1}^{N}{\sum_{l=1}^{L}{c_i + \phi_{ijl} y_{i,t-l}} + e_{i,t}}}
+\]
+where $e_{i,t}$ are white noise processes that may be contemporaneously correlated.  
+Series must be stationary  
+Criticisms of VARs-
+  -atheoretical-not built on a theory that imposes some structure on the equations
+  -interpretation of estimated coefficients is difficult
+Despite criticisms, useful in certain contexts-
+  -forecasting when no explicit interpretation is required
+  -testing whether one variable is useful in forecasting another
+  -inpulse response analysis-analysis of impact of sudden but temporary change in one variable on another
+  -forecast error variance decomposition
+```{r}
+VARselect(uschange[, 1:2], lag.max = 8)
+```
+Note that AIC selects a much higher-lag model than BIC (called SC after Schwarz in this package). This is common.
+Models must be checked for serial autocorrelation of errors before being accepted
+```{r}
+test_var <- function(y, p){
+  VAR(y, p, type = 'const') %>%
+    serial.test(lags.pt = 10, type = 'PT.asymptotic')
+}
+```
+
+```{r}
+test_var(uschange[, 1:2], 1)
+```
+
+```{r}
+test_var(uschange[, 1:2], 2)
+```
+
+```{r}
+test_var(uschange[, 1:2], 3)
+```
+
+```{r}
+VAR(uschange[, 1:2], p = 3, type = 'const') %>%
+  forecast() %>%
+  autoplot()
+```
+
+## Neural Network Models
+This book will deal explicitly with autoregressive feed-forward neural networks with one hidden layer only  
+An autogressive neural network model is parameterized $NNAR(p, P, k)_m$, where $p$ is the number of autoregressive terms, P the number of seasonal autoregression terms, k the number of neurons in hidden layer, and m the seasonal period  
+  -Note that $NNAR(p, P, 0)_m$ is equivalent to $ARIMA(p, 0, 0)(P, 0, 0)[m]$
+Parameters need not be stationary  
+Use nnetar() function - p, and k are selected automatically, and P defaults to 1 for seasonal data
+```{r}
+sunspotarea %>%
+  nnetar(lambda = 0) %>%
+  forecast(h = 30, PI = T, biasadj = T) %>%
+  autoplot()
+```
+This was run twice, and the predictions were VERY different both from each other and the book...
+
+## Bootstrapping and Bagging
+Bootstrapping - shuffling time series to introduce randomness
+  -used for bootstrapped prediction intervals and bagging
+```{r}
+bootseries <- bld.mbb.bootstrap(debitcards, 10) %>%
+  as.data.frame() %>%
+  ts(start = 2000, frequency = 12)
+autoplot(debitcards) +
+  autolayer(bootseries, colour = T) +
+  autolayer(debitcards, colour = F) +
+  guides(colour = 'none')
+```
+
+There are at least four sources of uncertainty in forecasting -  
+  1) The random error term
+  2) The parameter estimates
+  3) The choice of model
+  4) The continuation of the historical data generating process
+Analytic prediction intervals only account for 1); bootstrapped PIs move toward accounting for 2) and 3)
+```{r}
+nsim <- 100
+h <- 36
+fcast <- matrix(0, nrow = nsim, ncol = h)
+start_ind <- tsp(debitcards)[2] + 1/12
+
+sim <- bld.mbb.bootstrap(debitcards, nsim)
+for(i in 1:nsim){
+  fcast[i, ] <- simulate(ets(sim[[i]]), nsim = h)
+}
+
+fcast <- structure(
+  list(
+    mean = ts(colMeans(fcast), start = start_ind, frequency = 12),
+    lower = ts(apply(fcast, 2, quantile, prob = .025), start = start_ind, frequency = 12),
+    upper = ts(apply(fcast, 2, quantile, prob = .975), start = start_ind, frequency = 12),
+    level = 95
+  ),
+  class = 'forecast'
+)
+
+autoplot(debitcards) +
+  autolayer(fcast, series = 'Bootstrapped ETS') +
+  autolayer(forecast(ets(debitcards), h = h, level = 95), series = 'ETS') +
+  labs(
+    title = 'Monthly Retail Debit Card Usage',
+    subtitle = 'Iceland',
+    x = 'Year',
+    y = 'Millions ISK'
+  ) +
+  theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5))
+```
+
+Bootstrap aggregating - average of forecasts of bootstrapped times series are almost always better than a single model
+```{r}
+autoplot(debitcards) +
+  autolayer(forecast(ets(debitcards), h = 36), PI = F, series = 'Single Model') +
+  autolayer(forecast(baggedModel(debitcards, fn = 'ets'), h = 36), PI = F, series = 'Bagged Models')
+```
+
+# Exercises
+
+# Some Practical Forecasting Issues
+## Forecast Combinations
+"The results have been virtually unanimous: combining multiple forecasts leads to increased forecast accuracy" (Clemen, _Combining Forecasts: A Review and Annotated Bibliography_).  
+A simple average almost always performs best  
+```{r}
+train <- window(auscafe, end = c(2012, 9))
+h <- length(auscafe) - length(train)
+
+models <- list(
+  'ARIMA' = auto.arima(train, lambda = 0, biasadj = T),
+  'ETS' = ets(train),
+  'NNAR' = nnetar(train),
+  'STL' = stlm(train, lambda = 0, biasadj = T),
+  'TBATS' = tbats(train, biasadj = T)
+)
+forecasts <- models %>%
+  lapply(function(x) forecast(x, h = h)$mean) %>%
+  setDT()
+forecasts[, Combination := rowMeans(.SD)]
+
+autoplot(ts(forecasts, start = c(2012, 10), frequency = 12)) +
+  autolayer(window(auscafe, start = c(2010, 1)), color = 'black')
+```
+
+```{r}
+sapply(
+  1:6,
+  function(x){
+    colnm <- colnames(forecasts)[x]
+    acc <- accuracy(
+      ts(
+        forecasts[, get(colnm)], start = c(2012, 10), frequency = 12
+      ),
+      auscafe
+    )['Test set', 'RMSE']
+    return(list('Model' = colnm, 'RMSE' = acc))
+  },
+  USE.NAMES = T
+)
+```
+
+## Very Short and Very Long Time Series
+The only theoretical minimum amount of data needed is enough to avoid rank deficiency in estimating parameters, but it is best to have enough data for out-of-sample and/or cross-validation.  
+Most time series models do not work well with long series. As a time series gets longer a change in the underlying process generating the data becomes more an more likely, which will strain or even invalidate the coefficients.  
+  -e.g. the gasoline series is probably too long for any sensible forecast  
+  -a simple solution is to only forecast using recent data
+
+## Forecasting on training and test sets
+N-ahead training errors can be obtained by supplying the h argument to the fitted() function
+```{r}
+train <- subset(auscafe, end = length(auscafe) - 61)
+test <- subset(auscafe, start = length(auscafe) - 60)
+m <- Arima(train, order = c(2, 1, 1), seasonal = c(0, 1, 2), lambda = 0)
+m %>%
+  forecast(h = 60, biasadj = T) %>%
+  autoplot() +
+    autolayer(test)
+```
+
+```{r}
+autoplot(train, series = 'Train') +
+  autolayer(fitted(m, h = 1), series = '1-ahead Fitted Values') +
+  autolayer(fitted(m, h = 12), series = '12-ahead Fitted Values')
+```
+
+1-step ahead forecast errors can be obtained by providing the test set along with the model argument to modelling functions in the forecast package. This simply refits the model to the test set without re-estimating the parameters, resulting in true 1-ahead forecast errors rather than 1:N-ahead as is the case when forecasting.
+```{r}
+test %>%
+  Arima(model = m) %>%
+  accuracy()
+```
+Note that although the label of the output is 'Training', this is merely an artifact due to the Arima function.  
+
+## Missing Values and Outliers
+Missing data can be both random and non-random  
+  -a non-random example is holiday closure-effect on surrounding days should be considered  
+ets(), stlm(), and tbats() do not work if there is missing data  
+Use na.interp() for linear interpolation of missing values  
+  -uses STL decomposition if data is seasonal
+  -more sophisticated approach is available in zoo::na.approx() or imputeTS() package
+```{r}
+autoplot(na.interp(gold), series = 'Interpolated') +
+  autolayer(gold, series = 'Original') +
+  scale_color_manual(values = c('Interpolated' = 'red', 'Original' = 'dark grey'))
+```
+
+Outliers should be fixed if possible - no models will work well if there are large outliers in the data they are fit on.
